@@ -1,0 +1,87 @@
+name: 'Non-root check for Docker image'
+description: 'Check if a Docker image uses a non-root user'
+branding:
+  icon: user-check
+  color: red
+inputs:
+  image-ref:
+    description: Image to check
+    required: true
+  fail-for-root:
+    description: If the action should fail if no non-root user is configured
+    default: 'true'
+  junit-test-output:
+    description: Location to write XML JUnit test report to
+    required: false
+    default: ''
+  create-junit-output:
+    description: If an XML JUnit test report should be written
+    required: false
+    default: 'true' # Note: Action inputs are always of type string
+  create-test-report:
+    description: If a JUnit test report should be created by the action (otherwise it is assumed to report is handled outside of the action)
+    required: false
+    default: 'false' # Note: Action inputs are always of type string
+runs:
+  using: "composite"
+  steps:
+
+    - name: Check image user
+      shell: bash
+      env:
+        FAIL_FOR_ROOT: ${{ inputs.fail-for-root }}
+        CREATE_JUNIT_REPORT: ${{ inputs.create-junit-output }}
+      run: |
+          # determine image user
+          IMAGE_USER=$(docker image inspect ${{ inputs.image-ref }} -f '{{ .Config.User }}')
+
+          if [ "$IMAGE_USER" == "root" ] || [ -z "$IMAGE_USER" ]; then
+            IMAGE_USER=root
+          fi
+
+          # create JUnit report
+          if [ "$CREATE_JUNIT_REPORT" == "true" ] && [ "$IMAGE_USER" == "root" ]; then
+            cat <<EOF > ${{ inputs.junit-test-output != '' && inputs.junit-test-output || 'image-user-check.xml' }}
+          <?xml version="1.0" ?>
+          <testsuites name="trivy">
+              <testsuite tests="1" failures="1" name="Docker image user check" errors="0" skipped="0" time="">
+                  <testcase classname="${{ inputs.image-ref }}" name="Uses non-root user" time="">
+                      <failure message="Root user" type="description">The image does use the root user as default user for execution.</failure>
+                  </testcase>
+              </testsuite>
+          </testsuites>
+          EOF
+          fi
+
+          # Add information to summary, fail if configured
+          echo "### Docker Image user (${{ inputs.image-ref }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$IMAGE_USER" == "root" ]; then
+            echo "$IMAGE_USER &#10060;" >> $GITHUB_STEP_SUMMARY
+            echo "The Docker image uses either the root user explicitly or does not define a user."
+            if [ "$FAIL_FOR_ROOT" == "true" ]; then
+              exit 1
+            fi
+          else
+            echo "$IMAGE_USER &#9989;" >> $GITHUB_STEP_SUMMARY
+            echo "The Docker image does not use the root user or an empty string as the default user."
+          fi
+
+    #
+    # Optionally fail via JUnit test report
+    #
+
+      # https://github.com/marketplace/actions/junit-report-action
+    - name: Publish Test Report
+      uses: mikepenz/action-junit-report@v3
+      if: ${{ always() && inputs.create-junit-output == 'true' && inputs.create-test-report == 'true' }} # always run even if the previous step fails
+      with:
+        report_paths: "${{ inputs.junit-test-output != '' && inputs.junit-test-output || 'image-user-check.xml' }}"
+
+        fail_on_failure: true
+
+        # Workaround for check that is additionally created being associated
+        # to the wrong workflow/run. Instead not additional check is created.
+        # See https://github.com/mikepenz/action-junit-report/issues/40
+        annotate_only: true
+        detailed_summary: true
