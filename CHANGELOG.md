@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/wetransform/gha-docker-nonroot/compare/v1.0.0...v1.0.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies ([5dc394b](https://github.com/wetransform/gha-docker-nonroot/commit/5dc394b623cb0c2c1c4826755c04cb7b9d9cb49a))
+
 ## 1.0.0 (2024-03-26)
 
 
